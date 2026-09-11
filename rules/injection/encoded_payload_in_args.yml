@@ -1,0 +1,15 @@
+id: TS-INJ-004
+title: Long base64/hex blob in tool arguments (possible smuggled payload)
+status: experimental
+severity: medium
+category: injection
+description: >
+  Tool arguments contain a long base64 or hex string. Encoded blobs are a
+  common way to smuggle instructions or data past naive content filters;
+  worth decoding and reviewing.
+tags:
+  - prompt-injection
+  - obfuscation
+detection:
+  selection:
+    args|matches: "([A-Za-z0-9+/]{120,}={0,2}|(?:[0-9a-fA-F]{2}){60,})"

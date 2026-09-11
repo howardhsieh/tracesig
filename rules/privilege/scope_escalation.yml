@@ -1,0 +1,15 @@
+id: TS-PRIV-001
+title: Permission or role escalation tool call
+status: stable
+severity: high
+category: privilege
+description: >
+  The agent invokes a tool that grants privileges, changes IAM/role scope, or
+  disables a guardrail. Legitimate in some workflows, but always worth a human
+  eye — especially downstream of untrusted input.
+tags:
+  - privilege-escalation
+  - integrity
+detection:
+  selection:
+    tool|matches: "(grant_|add_role|attach_policy|set_permission|disable_guardrail|sudo|assume_role|create_admin)"

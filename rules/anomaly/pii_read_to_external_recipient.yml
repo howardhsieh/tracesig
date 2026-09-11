@@ -1,0 +1,17 @@
+id: TS-ANO-003
+title: PII-labeled data followed by message to an external recipient
+status: stable
+severity: high
+category: exfiltration
+description: >
+  Data labeled `pii` is read, then a messaging/email tool fires. Even without
+  a web-injection origin, PII crossing to an outbound channel warrants review
+  (data-loss prevention for agents).
+tags:
+  - data-exfiltration
+  - pii
+  - dlp
+detection:
+  taint:
+    source_label: pii
+    sink|matches: "(send_email|send_message|slack_post|sms|webhook)"

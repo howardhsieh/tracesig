@@ -1,0 +1,17 @@
+id: TS-INJ-003
+title: Untrusted web read immediately followed by a destructive action
+status: stable
+severity: critical
+category: injection
+description: >
+  An untrusted web fetch is followed within a short window by a destructive or
+  state-changing tool call (delete, drop, payment, permission change). Strong
+  indicator that fetched content is driving the action.
+tags:
+  - prompt-injection
+  - integrity
+detection:
+  sequence:
+    - tool|matches: "(web_fetch|web_search|browse|http_get|retrieve)"
+    - tool|matches: "(delete|drop_table|rm_|revoke|transfer_funds|make_payment|grant_|chmod|deploy)"
+  within_events: 3

@@ -1,0 +1,15 @@
+id: TS-INJ-001
+title: Imperative override phrase in a tool result
+status: stable
+severity: high
+category: injection
+description: >
+  A tool result (typically from web/retrieval) contains an imperative phrase
+  that tries to override the agent's instructions — the signature of an
+  indirect prompt-injection payload landing in context.
+tags:
+  - prompt-injection
+  - owasp-llm01
+detection:
+  selection:
+    result_preview|matches: "(ignore (all |the )?(previous|prior|above|earlier) instructions|disregard (the|all) (above|previous)|you are now|new instructions:|system override|do not tell the user)"

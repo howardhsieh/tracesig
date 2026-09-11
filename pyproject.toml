@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tracesig"
+version = "0.1.0"
+description = "Sigma-style detection rules for AI agent tool-call traces — an open rule format, a reference engine, and a starter rule pack."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.9"
+authors = [{ name = "Howard Hung-Mo Hsieh", email = "hungmohsieh@gmail.com" }]
+keywords = ["ai-security", "llm-security", "detection-engineering", "agent-security", "sigma", "prompt-injection"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Information Technology",
+  "Topic :: Security",
+  "Programming Language :: Python :: 3",
+]
+dependencies = ["pyyaml>=6.0"]
+
+[project.scripts]
+tracesig = "tracesig.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/howardhsieh/tracesig"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tracesig"]

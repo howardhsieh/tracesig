@@ -1,0 +1,20 @@
+id: TS-EXF-001
+title: Untrusted web content followed by outbound email
+status: stable
+severity: critical
+category: exfiltration
+description: >
+  A tool call carrying a `web` (untrusted) source label is followed by an
+  email/message sink in the same session — the classic indirect
+  prompt-injection exfiltration chain (attacker page instructs the agent to
+  mail out data). Flags the flow by provenance, not by content.
+tags:
+  - prompt-injection
+  - data-exfiltration
+  - owasp-llm01
+references:
+  - https://owasp.org/www-project-top-10-for-large-language-model-applications/
+detection:
+  taint:
+    source_label: web
+    sink|matches: "(send_email|send_message|sendmail|smtp|slack_post|webhook|http_post)"

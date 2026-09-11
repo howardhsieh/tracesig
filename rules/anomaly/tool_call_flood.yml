@@ -1,0 +1,15 @@
+id: TS-ANO-001
+title: Excessive repeated tool calls in a single session (possible loop/DoS)
+status: stable
+severity: medium
+category: anomaly
+description: >
+  The same tool is invoked many times within one session — a runaway agent
+  loop, a quota-burning pattern, or brute-forcing behavior. Threshold is a
+  starting point; tune per environment.
+tags:
+  - denial-of-service
+  - resource-abuse
+detection:
+  frequency:
+    count: 25

@@ -1,0 +1,16 @@
+id: TS-EXF-002
+title: Local file/secret read followed by outbound network call
+status: stable
+severity: high
+category: exfiltration
+description: >
+  A file or secret read (source label `file` or `secret`) is followed by an
+  outbound network sink in the same session — data leaving the trust boundary
+  after touching local data.
+tags:
+  - data-exfiltration
+  - secrets
+detection:
+  taint:
+    source_label: file
+    sink|matches: "(http_post|http_get|fetch|curl|webhook|upload|send_email)"

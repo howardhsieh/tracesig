@@ -1,0 +1,15 @@
+id: TS-ANO-002
+title: Repeated authentication/login tool calls (credential brute force)
+status: experimental
+severity: high
+category: anomaly
+description: >
+  An auth/login tool is called many times in one session — an agent being
+  driven to brute-force or credential-stuff a downstream system.
+tags:
+  - credential-access
+  - brute-force
+detection:
+  frequency:
+    tool|matches: "(login|authenticate|auth_|verify_password|submit_otp)"
+    count: 5
