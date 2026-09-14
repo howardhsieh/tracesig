@@ -1,0 +1,5 @@
+# Same destructive action, but a human_approval event precedes it.
+# TS-PRIV-002 stays quiet: the guard is satisfied.
+{"session_id": "s5", "seq": 0, "tool": "list_files", "args": "/data", "labels": []}
+{"session_id": "s5", "seq": 1, "tool": "human_approval", "args": "approve delete /data/prod.db", "labels": []}
+{"session_id": "s5", "seq": 2, "tool": "delete_file", "args": "/data/prod.db", "labels": []}

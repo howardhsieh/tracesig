@@ -73,7 +73,21 @@ detection:
     count: 5
 ```
 
+### not_preceded_by
+An `event` is a finding **unless** a matching `guard` event occurred earlier in
+the same session — the human-in-the-loop primitive. Optional `within_events`
+requires the guard to fall within that many events before the trigger; omit it
+and any earlier guard in the session suppresses the match.
+```yaml
+detection:
+  not_preceded_by:
+    event:
+      tool|matches: "(delete|transfer_funds|deploy)"
+    guard:
+      tool|matches: "(human_approval|approve|confirm)"
+    within_events: 5   # optional
+```
+
 ## Roadmap (v0.2+)
-`not_preceded_by` operator (for human-in-the-loop gaps), cross-session
-correlation, a shared taxonomy of tool categories, and provider normalizers
+cross-session correlation, a shared taxonomy of tool categories, and provider normalizers
 (MCP, OpenAI, Anthropic, agent-policy-gateway).

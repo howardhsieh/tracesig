@@ -7,6 +7,8 @@ v0.1 supports four detection types:
   sequence   — ordered tool calls within one session (optional window)
   taint      — a source label appears in a session, then a sink tool fires
   frequency  — a matching event repeats >= count times in one session
+  not_preceded_by — an event fires without a required guard (e.g. a
+                    human-in-the-loop approval) earlier in the session
 """
 
 from __future__ import annotations
@@ -167,11 +169,40 @@ def _eval_frequency(det: Dict[str, Any], sess: List[TraceEvent]) -> List[List[Tr
     return [matched] if len(matched) >= count else []
 
 
+def _eval_not_preceded_by(det: Dict[str, Any], sess: List[TraceEvent]) -> List[List[TraceEvent]]:
+    """Flag an `event` that has no matching `guard` before it in the session.
+
+    The human-in-the-loop primitive: a high-impact action is a finding unless a
+    required guard event (an approval / confirmation) precedes it. With
+    `within_events` the guard must fall within that many events before the
+    trigger; without it, any earlier guard in the session suppresses the match.
+    """
+    spec = det["not_preceded_by"]
+    event_conds = spec.get("event") or {}
+    guard_conds = spec.get("guard") or {}
+    window = spec.get("within_events")
+    hits: List[List[TraceEvent]] = []
+    for idx, ev in enumerate(sess):
+        if not _event_matches(event_conds, ev):
+            continue
+        guarded = False
+        for prev in sess[:idx]:
+            if window is not None and (ev.seq - prev.seq) > int(window):
+                continue
+            if guard_conds and _event_matches(guard_conds, prev):
+                guarded = True
+                break
+        if not guarded:
+            hits.append([ev])
+    return hits
+
+
 _EVALUATORS = {
     "selection": _eval_selection,
     "sequence": _eval_sequence,
     "taint": _eval_taint,
     "frequency": _eval_frequency,
+    "not_preceded_by": _eval_not_preceded_by,
 }
 
 
