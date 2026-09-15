@@ -1,18 +1,21 @@
 id: TS-PRIV-002
 title: Destructive tool used without a prior human-in-the-loop confirmation
-status: experimental
+status: stable
 severity: medium
 category: privilege
 description: >
-  A destructive/state-changing tool fires in a session that never recorded a
-  human_approval / confirm event. Pairs with policy gateways
-  (e.g. agent-policy-gateway) that emit an approval event; absence of one
-  before a high-impact action is the finding.
+  A destructive / state-changing tool fires in a session that recorded no
+  preceding human_approval / confirm event. Pairs with policy gateways
+  (e.g. agent-policy-gateway) that emit an approval event; the absence of one
+  before a high-impact action is the finding. Uses the not_preceded_by
+  operator, so a genuinely approved action stays quiet instead of alerting on
+  every destructive call.
 tags:
   - human-in-the-loop
   - integrity
 detection:
-  sequence:
-    - tool|matches: "(delete|drop_table|transfer_funds|make_payment|deploy|revoke)"
-  # NOTE: refine in v0.2 with a "not preceded by" operator; v0.1 flags all
-  # destructive calls so reviewers can confirm an approval exists.
+  not_preceded_by:
+    event:
+      tool|matches: "(delete|drop_table|transfer_funds|make_payment|deploy|revoke)"
+    guard:
+      tool|matches: "(human_approval|approve|confirm|request_approval|user_confirm|authorize)"

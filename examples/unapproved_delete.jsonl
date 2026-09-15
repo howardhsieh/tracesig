@@ -1,0 +1,4 @@
+# Destructive action with NO human approval anywhere in the session.
+# TS-PRIV-002 fires: the not_preceded_by guard finds no approval before the delete.
+{"session_id": "s4", "seq": 0, "tool": "list_files", "args": "/data", "labels": []}
+{"session_id": "s4", "seq": 1, "tool": "delete_file", "args": "/data/prod.db", "labels": []}

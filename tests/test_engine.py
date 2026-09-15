@@ -40,7 +40,48 @@ def test_rules_all_load():
     rules = load_rules(RULES)
     assert len(rules) >= 12
     # every rule has a stable-looking id and a known detection type
-    known = {"selection", "sequence", "taint", "frequency"}
+    known = {"selection", "sequence", "taint", "frequency", "not_preceded_by"}
     for r in rules:
         assert r.rule_id.startswith("TS-")
         assert known & set(r.detection.keys())
+
+
+def test_not_preceded_by_fires_without_approval():
+    findings = _scan("unapproved_delete.jsonl")
+    assert "TS-PRIV-002" in {f.rule_id for f in findings}
+
+
+def test_not_preceded_by_quiet_with_approval():
+    findings = _scan("approved_delete.jsonl")
+    assert "TS-PRIV-002" not in {f.rule_id for f in findings}
+
+
+def test_not_preceded_by_window_bounds_guard():
+    from tracesig.engine import Rule, scan
+    from tracesig.schema import TraceEvent
+
+    rule = Rule(
+        rule_id="TS-TEST-NPB",
+        title="window test",
+        severity="low",
+        category="privilege",
+        detection={
+            "not_preceded_by": {
+                "event": {"tool|matches": "delete"},
+                "guard": {"tool|matches": "approve"},
+                "within_events": 2,
+            }
+        },
+    )
+    # approval too far back (seq gap 5 > 2) -> still a finding
+    far = [
+        TraceEvent(session_id="a", seq=0, tool="approve"),
+        TraceEvent(session_id="a", seq=5, tool="delete_file"),
+    ]
+    assert len(scan(far, [rule])) == 1
+    # approval within the window (seq gap 1) -> suppressed
+    near = [
+        TraceEvent(session_id="b", seq=0, tool="approve"),
+        TraceEvent(session_id="b", seq=1, tool="delete_file"),
+    ]
+    assert len(scan(near, [rule])) == 0
