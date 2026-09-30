@@ -6,12 +6,11 @@ format, a small reference engine, and rule packs for Claude Code and
 so a detection written once runs on any agent.
 
 [![CI](https://github.com/howardhsieh/tracesig/actions/workflows/ci.yml/badge.svg)](https://github.com/howardhsieh/tracesig/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/tracesig)](https://pypi.org/project/tracesig/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](pyproject.toml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 ```bash
-pip install tracesig
+pip install "git+https://github.com/howardhsieh/tracesig@v0.2.0"   # PyPI release coming soon
 tracesig scan ~/.claude/projects/      # hunt through your own Claude Code sessions
 ```
 
@@ -44,7 +43,7 @@ payloads that keyword filters miss.
 ## Quick start
 
 ```bash
-pip install tracesig
+pip install "git+https://github.com/howardhsieh/tracesig@v0.2.0"
 
 # Claude Code: transcripts live in ~/.claude/projects/<project>/<session>.jsonl
 tracesig scan ~/.claude/projects/
