@@ -270,3 +270,41 @@ def test_each_core_rule_fires(rule_id):
     rules = load_rules(pack_dirs(["core"]))
     assert rule_id in {r.rule_id for r in rules}
     assert rule_id in ids(scan(CORE_CASES[rule_id], rules))
+
+
+# ------------------------------------------------------------------ time windows
+
+def _tev(seq, tool, ts, **kw):
+    return TraceEvent(session_id="tw", seq=seq, tool=tool, ts=ts, **kw)
+
+
+def test_sequence_within_duration():
+    rule = _rule({"sequence": [{"tool": "web_fetch"}, {"tool": "delete_repo"}], "within": "5m"})
+    near = [_tev(0, "web_fetch", "2026-09-30T10:00:00Z"), _tev(1, "delete_repo", "2026-09-30T10:04:59Z")]
+    far = [_tev(0, "web_fetch", "2026-09-30T10:00:00Z"), _tev(1, "delete_repo", "2026-09-30T10:06:00Z")]
+    untimed = [TraceEvent(session_id="tw", seq=0, tool="web_fetch"), TraceEvent(session_id="tw", seq=1, tool="delete_repo")]
+    assert len(scan(near, [rule])) == 1
+    assert scan(far, [rule]) == []
+    assert scan(untimed, [rule]) == []  # a time window needs timestamps
+
+
+def test_taint_within_duration_expires_old_sources():
+    rule = _rule({"taint": {"source_label": "web", "sink|matches": "send", "within": "10m"}})
+    old = [_tev(0, "web_fetch", "2026-09-30T09:00:00Z", labels=["web"]),
+           _tev(1, "send_email", "2026-09-30T09:30:00.123456789Z")]
+    fresh = [_tev(0, "web_fetch", "2026-09-30T09:00:00+00:00", labels=["web"]),
+             _tev(1, "send_email", "2026-09-30T09:09:00+00:00")]
+    assert scan(old, [rule]) == []
+    assert len(scan(fresh, [rule])) == 1
+
+
+@pytest.mark.parametrize("value,seconds", [("30s", 30), ("10m", 600), ("2h", 7200), ("1d", 86400), (45, 45), ("500ms", 0.5)])
+def test_parse_duration(value, seconds):
+    from tracesig.engine import parse_duration
+    assert parse_duration(value) == seconds
+
+
+def test_bad_duration_is_a_validation_error():
+    doc = {"id": "X", "title": "t", "severity": "low", "category": "c",
+           "detection": {"sequence": [{"tool": "a"}, {"tool": "b"}], "within": "soon"}}
+    assert any("duration" in p for p in validate_rule(doc))

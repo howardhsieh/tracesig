@@ -10,7 +10,7 @@ so a detection written once runs on any agent.
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 ```bash
-pip install "git+https://github.com/howardhsieh/tracesig@v0.2.0"   # PyPI release coming soon
+pip install "git+https://github.com/howardhsieh/tracesig@v0.2.1"   # PyPI release coming soon
 tracesig scan ~/.claude/projects/      # hunt through your own Claude Code sessions
 ```
 
@@ -43,7 +43,7 @@ payloads that keyword filters miss.
 ## Quick start
 
 ```bash
-pip install "git+https://github.com/howardhsieh/tracesig@v0.2.0"
+pip install "git+https://github.com/howardhsieh/tracesig@v0.2.1"
 
 # Claude Code: transcripts live in ~/.claude/projects/<project>/<session>.jsonl
 tracesig scan ~/.claude/projects/
@@ -92,8 +92,8 @@ data flow rather than keywords.
 | Primitive | Fires when |
 |---|---|
 | `selection` | one event matches every condition |
-| `sequence` | ordered steps happen in one session, optionally within N events |
-| `taint` | a labeled source is followed by a sink |
+| `sequence` | ordered steps happen in one session, optionally within N events or a time window (`within: 10m`) |
+| `taint` | a labeled source is followed by a sink, optionally only while the source is fresh (`within: 10m`) |
 | `frequency` | matching events repeat N times (per tool, or `group_by` any field) |
 | `not_preceded_by` | a high-impact event has no approval (guard) before it |
 
@@ -158,6 +158,32 @@ One event per tool call, one JSON object per line:
 [docs/trace-schema.md](docs/trace-schema.md). Normalizers and their label
 rules: [docs/normalizers.md](docs/normalizers.md).
 
+## How it compares
+
+**Content rules catch the payload in one message; TraceSig catches what the
+agent did next.** Most agent detection today matches text inside a single
+event. TraceSig's rules are about behavior across calls: where data came from,
+what the agent did after, and whether a required approval came first.
+
+| Project | Rule model | Runs on |
+|---|---|---|
+| [Agent Threat Rules (ATR)](https://github.com/Agent-Threat-Rule/agent-threat-rules) | 652 single-event rules (contains, regex, equals) over prompts, tool arguments, tool responses and agent configs | Its engine, GitHub Action, SIEM exporters |
+| [Invariant Guardrails](https://github.com/invariantlabs-ai/invariant) | Python-like rules, including flows between tool calls | A gateway in front of the model and tools, or recorded traces |
+| [sigma-ai](https://github.com/agentshield-ai/sigma-ai) | 45 Sigma rules with custom time-window extensions | Sigma backends |
+| **TraceSig** | YAML rules over provenance-labeled traces: `taint`, `sequence`, `not_preceded_by`, `frequency`, with event and time windows | Offline, on Claude Code transcripts, agent-policy-gateway audit logs, or any JSONL trace |
+
+They combine well: run ATR's content rules on each message and TraceSig's
+behavior rules on the session. What TraceSig adds:
+
+- **Provenance as a first-class field.** Normalizers label what each call
+  returned (`web`, `untrusted`, `secret`, `mcp`), so a rule says "secret read,
+  then a network call" instead of guessing from command text.
+- **Hunt without deploying anything.** `tracesig scan ~/.claude/projects/`
+  reads the transcripts Claude Code already keeps; no proxy, agent or account.
+- **Rules that know the gateway's verdict.** The `apg` pack reads
+  agent-policy-gateway's allow and deny decisions, so it can flag a blocked
+  exfiltration followed by an allowed one.
+
 ## Where this fits
 
 TraceSig is the **detect** layer of an open agent-security stack:
@@ -171,7 +197,8 @@ TraceSig is the **detect** layer of an open agent-security stack:
 ## Roadmap
 
 - More normalizers: OpenAI Agents SDK, LangGraph, MCP gateway logs
-- Cross-session correlation and time windows (`within: 10m`)
+- Cross-session correlation
+- An ATR adapter, so content rules and behavior rules run in one pass
 - SARIF and Sigma export for SIEM pipelines
 - A shared tool-category taxonomy so one rule covers many agents
 - A community rule repository, the way SigmaHQ hosts SIEM rules

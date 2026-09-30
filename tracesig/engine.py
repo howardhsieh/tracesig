@@ -33,6 +33,50 @@ class RuleError(ValueError):
     """A rule file is not a valid TraceSig rule."""
 
 
+_DURATION = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(ms|s|m|h|d)?\s*$")
+_UNIT_SECONDS = {"ms": 0.001, "s": 1, "m": 60, "h": 3600, "d": 86400, None: 1}
+
+
+def parse_duration(value: Any) -> float:
+    """'90s', '10m', '2h', '1d' or a number of seconds -> seconds."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    m = _DURATION.match(str(value))
+    if not m:
+        raise ValueError("bad duration %r (use e.g. 30s, 10m, 2h)" % (value,))
+    return float(m.group(1)) * _UNIT_SECONDS[m.group(2)]
+
+
+def _ts_seconds(ev: TraceEvent) -> Optional[float]:
+    if not ev.ts:
+        return None
+    text = str(ev.ts).strip().replace("Z", "+00:00")
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        # fromisoformat before 3.11 rejects >6 fractional digits
+        m = re.match(r"^(.*\.\d{6})\d+(.*)$", text)
+        if not m:
+            return None
+        try:
+            from datetime import datetime, timezone
+            dt = datetime.fromisoformat(m.group(1) + m.group(2))
+        except ValueError:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
+def _in_time(first: TraceEvent, later: TraceEvent, window: Optional[float]) -> bool:
+    """True when no time window applies, or both events are timestamped and within it."""
+    if window is None:
+        return True
+    a, b = _ts_seconds(first), _ts_seconds(later)
+    return a is not None and b is not None and 0 <= b - a <= window
+
+
 @dataclass
 class Finding:
     rule_id: str
@@ -175,6 +219,13 @@ def validate_rule(doc: Any) -> List[str]:
         else:
             _check_conditions(body.get("event"), "not_preceded_by event", errors)
             _check_conditions(body.get("guard") or {}, "not_preceded_by guard", errors, allow_empty=True)
+    for dur in [det.get("within")] + ([body.get("within")] if isinstance(body, dict) else []):
+        if dur is None:
+            continue
+        try:
+            parse_duration(dur)
+        except ValueError as exc:
+            errors.append(str(exc))
     windows = [det.get("within_events")]
     if isinstance(body, dict):
         windows.append(body.get("within_events"))
@@ -301,6 +352,7 @@ def _eval_sequence(det: Dict[str, Any], sess: List[TraceEvent]) -> List[List[Tra
     """Ordered steps; with ``within_events`` the whole chain spans at most that many seq."""
     steps: List[Dict[str, Any]] = det["sequence"]
     window = det.get("within_events")
+    seconds = parse_duration(det["within"]) if det.get("within") is not None else None
     by_end: Dict[int, List[TraceEvent]] = {}
     for start, first in enumerate(sess):
         if not _event_matches(steps[0], first):
@@ -314,6 +366,10 @@ def _eval_sequence(det: Dict[str, Any], sess: List[TraceEvent]) -> List[List[Tra
                 j += 1
                 if window is not None and (ev.seq - first.seq) > int(window):
                     break
+                if seconds is not None and not _in_time(first, ev, seconds):
+                    if _ts_seconds(ev) is not None and _ts_seconds(first) is not None:
+                        break
+                    continue
                 if _event_matches(step, ev):
                     found = ev
                     break
@@ -337,12 +393,15 @@ def _eval_taint(det: Dict[str, Any], sess: List[TraceEvent]) -> List[List[TraceE
     rewritten = {}
     for k, v in spec.items():
         if str(k).split("|", 1)[0] != "sink":
-            continue
+            continue  # also skips source_label and within
         op = k.split("|", 1)[1] if "|" in k else "equals"
         rewritten["tool" if op == "equals" else "tool|%s" % op] = v
+    seconds = parse_duration(spec["within"]) if spec.get("within") is not None else None
     source_ev: Optional[TraceEvent] = None
     hits: List[List[TraceEvent]] = []
     for ev in sess:
+        if source_ev is not None and seconds is not None and not _in_time(source_ev, ev, seconds):
+            source_ev = None  # the source is too old to taint this call
         if source_ev is None and wanted & {str(x).lower() for x in ev.labels}:
             source_ev = ev
             continue

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tracesig"
-version = "0.2.0"
+version = "0.2.1"
 description = "Sigma-style detection rules for AI agent tool-call traces: an open rule format, a reference engine, rule packs for Claude Code and agent-policy-gateway."
 readme = "README.md"
 license = "Apache-2.0"

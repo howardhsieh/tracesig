@@ -6,8 +6,13 @@ All notable changes to TraceSig are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-30
+
 ### Added
 
+- Time windows: `within: 10m` on `sequence` (the whole chain) and `taint`
+  (how long a source stays fresh). Durations accept `ms`, `s`, `m`, `h`, `d`.
+- README: how TraceSig compares with ATR, Invariant Guardrails and sigma-ai.
 - `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue forms (bug report, rule proposal) and a pull-request template.
 
 ## [0.2.0] - 2026-09-30
@@ -58,6 +63,7 @@ All notable changes to TraceSig are documented here. The format is based on
   sequence, taint and frequency detections (not_preceded_by added
   2026-09-14), and 12 starter rules.
 
-[Unreleased]: https://github.com/howardhsieh/tracesig/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/howardhsieh/tracesig/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/howardhsieh/tracesig/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/howardhsieh/tracesig/compare/470b403...v0.2.0
 [0.1.0]: https://github.com/howardhsieh/tracesig/commit/470b403

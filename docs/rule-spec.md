@@ -49,7 +49,8 @@ detection:
 
 ### sequence
 Ordered steps within one session; optional `within_events` window (max seq gap
-between first and last step).
+between first and last step) and optional `within` time window (`30s`, `10m`,
+`2h`, `1d`; the chain must span at most that long, and events need `ts`).
 ```yaml
 detection:
   sequence:
@@ -62,7 +63,8 @@ detection:
 A `source_label` appears on some event, then a later event matches the `sink`
 condition — provenance-based, the core agent-security primitive.
 `source_label` may be a list (any of them). The sink addresses the `tool`
-field.
+field. With `within: 10m` a source taints only sinks that follow it within that
+time (events need `ts`).
 ```yaml
 detection:
   taint:
@@ -107,6 +109,6 @@ detection type, known operators, regexes that compile, integer windows, and
 unique ids. Run it in CI for your own rule folders.
 
 ## Roadmap (v0.3+)
-Time windows (`within: 10m`), cross-session correlation, a shared taxonomy of
+Cross-session correlation, an ATR adapter, a shared taxonomy of
 tool categories, more normalizers (OpenAI Agents SDK, LangGraph, MCP gateway
 logs), SARIF and Sigma export.
