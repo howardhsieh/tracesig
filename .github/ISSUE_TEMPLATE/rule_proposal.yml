@@ -1,0 +1,31 @@
+name: Rule proposal
+description: Suggest a detection rule, a rule pack, or a normalizer for another agent.
+labels: [rule]
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What agent behavior should be detected?
+      description: The attack or misuse pattern, and why it matters (link a write-up, OWASP Agentic Top 10 or MITRE ATLAS entry if there is one).
+    validations:
+      required: true
+  - type: textarea
+    id: trace
+    attributes:
+      label: Example trace
+      description: Synthetic tool calls that should fire the rule, and a benign case that should not.
+      render: json
+  - type: textarea
+    id: rule
+    attributes:
+      label: Draft rule (optional)
+      render: yaml
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Which agent or log format?
+      options:
+        - Any (core pack)
+        - Claude Code
+        - agent-policy-gateway
+        - Other (describe above)

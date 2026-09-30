@@ -6,6 +6,10 @@ All notable changes to TraceSig are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue forms (bug report, rule proposal) and a pull-request template.
+
 ## [0.2.0] - 2026-09-30
 
 ### Added

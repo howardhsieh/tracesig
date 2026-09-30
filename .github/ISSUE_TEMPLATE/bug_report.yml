@@ -1,0 +1,32 @@
+name: Bug report
+description: The engine, a normalizer or the CLI does something wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security vulnerability? Please report it privately instead: see SECURITY.md.
+        Never paste real credentials or personal data; use synthetic traces.
+  - type: input
+    id: version
+    attributes:
+      label: TraceSig version
+      description: Output of `tracesig --version`
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal trace and command to reproduce
+      description: A few synthetic JSONL lines and the exact command.
+      render: shell
+  - type: input
+    id: env
+    attributes:
+      label: OS and Python version
