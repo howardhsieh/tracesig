@@ -1,0 +1,130 @@
+name: Release
+
+# Bump `version` in pyproject.toml on main and this workflow tests, builds,
+# creates the GitHub release v<version> (and its tag) and publishes to PyPI
+# with trusted publishing. Run it by hand (workflow_dispatch) to retry a
+# publish that failed.
+#
+# One-time PyPI setup (pending publisher): project tracesig, owner
+# howardhsieh, repository tracesig, workflow release.yml, environment pypi.
+on:
+  push:
+    branches: [main]
+    paths: [pyproject.toml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Decide what to release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      release: ${{ steps.v.outputs.release }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: v
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          pkg="$(python3 -c 'import re; print(re.search(r"__version__ = \"([^\"]+)\"", open("tracesig/__init__.py").read()).group(1))')"
+          if [ "$version" != "$pkg" ]; then
+            echo "::error::pyproject.toml version $version != tracesig.__version__ $pkg"; exit 1
+          fi
+          release=true
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then release=false; fi
+          code="$(curl -s -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/tracesig/$version/json")"
+          publish=true
+          if [ "$code" = "200" ]; then publish=false; fi
+          echo "version=$version release=$release publish=$publish"
+          {
+            echo "version=$version"
+            echo "release=$release"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Test and build
+    needs: check
+    if: needs.check.outputs.release == 'true' || needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
+      - run: tracesig validate
+      - run: python -m build
+      - run: python -m twine check --strict dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  github-release:
+    name: GitHub release
+    needs: [check, build]
+    if: needs.check.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Notes from CHANGELOG.md
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          v = os.environ["VERSION"]
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          m = re.search(r"^## \[%s\][^\n]*\n(.*?)(?=^## \[|\Z)" % re.escape(v), text, re.S | re.M)
+          body = m.group(1).strip() if m else "See CHANGELOG.md."
+          body += "\n\n```bash\npip install tracesig==%s\ntracesig scan ~/.claude/projects/\n```\n" % v
+          open("NOTES.md", "w", encoding="utf-8").write(body)
+          PY
+      - name: Create the release and tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          gh release create "v$VERSION" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "TraceSig v$VERSION" --notes-file NOTES.md
+
+  pypi:
+    name: Publish to PyPI
+    needs: [check, build]
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/tracesig/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

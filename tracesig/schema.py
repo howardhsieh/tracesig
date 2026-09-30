@@ -3,14 +3,15 @@
 A *trace* is a JSONL file: one normalized TraceEvent per line, in order.
 See docs/trace-schema.md for the full specification.
 
-Normalizers turn provider-native logs (MCP, OpenAI tool calls, Anthropic
-tool_use blocks, agent-policy-gateway audit logs) into this shape. v0.1
-ships the generic loader; provider normalizers land in v0.2.
+Normalizers in :mod:`tracesig.normalize` turn provider-native logs (Claude
+Code transcripts and OpenTelemetry exports, agent-policy-gateway audit
+exports) into this shape.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterator, List, Optional
 
@@ -45,28 +46,44 @@ class TraceEvent:
         return getattr(self, path, None)
 
 
+def event_from_dict(obj: Dict[str, Any], default_seq: int = 0) -> TraceEvent:
+    """Build a :class:`TraceEvent` from one decoded JSON object."""
+    labels = obj.get("labels", [])
+    if not isinstance(labels, list):
+        labels = [labels] if labels else []
+    return TraceEvent(
+        session_id=str(obj.get("session_id") or "default"),
+        seq=int(obj.get("seq", default_seq)),
+        tool=str(obj.get("tool", "")),
+        args=_canon_args(obj.get("args", "")),
+        labels=[str(x) for x in labels],
+        result_preview=str(obj.get("result_preview") or ""),
+        ts=obj.get("ts"),
+        agent=obj.get("agent"),
+        raw=obj,
+    )
+
+
 def load_jsonl(path: str) -> List[TraceEvent]:
-    """Load a normalized trace from a JSONL file."""
+    """Load a normalized trace from a JSONL file.
+
+    Lines exported by agent-policy-gateway (``"schema": "apg-audit-trace"``)
+    are mapped on the fly; use :func:`tracesig.normalize.load_events` for
+    other formats and for directories.
+    """
+    from .normalize import apg  # local import: normalize depends on schema
+
     events: List[TraceEvent] = []
+    stem = os.path.splitext(os.path.basename(path))[0]
     with open(path, "r", encoding="utf-8") as f:
         for i, line in enumerate(f):
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
             obj = json.loads(line)
-            events.append(
-                TraceEvent(
-                    session_id=str(obj.get("session_id", "default")),
-                    seq=int(obj.get("seq", i)),
-                    tool=str(obj.get("tool", "")),
-                    args=_canon_args(obj.get("args", "")),
-                    labels=[str(x) for x in obj.get("labels", [])],
-                    result_preview=str(obj.get("result_preview", "")),
-                    ts=obj.get("ts"),
-                    agent=obj.get("agent"),
-                    raw=obj,
-                )
-            )
+            if apg.is_apg_event(obj):
+                obj = apg.to_event(obj, stem, i)
+            events.append(event_from_dict(obj, i))
     events.sort(key=lambda e: (e.session_id, e.seq))
     return events
 

@@ -1,0 +1,21 @@
+id: APG-002
+title: Untrusted input reached an allowed outbound or state-changing tool
+status: experimental
+severity: high
+category: exfiltration
+description: >
+  The gateway allowed a call whose inputs carried an integrity taint
+  (web, email or other untrusted content) into a tool that sends data out or
+  changes state. Either the policy has a gap for this tool, or a
+  declassification fired; review the policy rule named in the event.
+tags:
+  - owasp-asi01
+  - owasp-asi02
+  - agent-policy-gateway
+references:
+  - https://github.com/howardhsieh/agent-policy-gateway/blob/main/docs/tracesig-export.md
+detection:
+  selection:
+    raw.verdict: allow
+    raw.input_untrusted: true
+    tool|matches: "(send|post|email|mail|message|webhook|upload|publish|transfer|payment|pay_|delete|write|create|update|share|invite)"

@@ -1,14 +1,14 @@
 """TraceSig rule engine.
 
 Evaluates YAML rules (see docs/rule-spec.md) against a normalized trace.
-v0.1 supports four detection types:
+Five detection types:
 
-  selection  — all field conditions match a single event
-  sequence   — ordered tool calls within one session (optional window)
-  taint      — a source label appears in a session, then a sink tool fires
-  frequency  — a matching event repeats >= count times in one session
-  not_preceded_by — an event fires without a required guard (e.g. a
-                    human-in-the-loop approval) earlier in the session
+  selection        all field conditions match a single event
+  sequence         ordered steps within one session (optional window)
+  taint            a source label appears in a session, then a sink tool fires
+  frequency        matching events repeat >= count times in one session
+  not_preceded_by  an event fires without a required guard (e.g. a
+                   human-in-the-loop approval) earlier in the session
 """
 
 from __future__ import annotations
@@ -16,11 +16,21 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
 
 import yaml
 
 from .schema import TraceEvent, sessions
+
+SEVERITIES = ("critical", "high", "medium", "low", "informational")
+SEVERITY_ORDER = {s: i for i, s in enumerate(SEVERITIES)}
+DETECTION_TYPES = ("selection", "sequence", "taint", "frequency", "not_preceded_by")
+OPERATORS = ("equals", "contains", "matches")
+
+
+class RuleError(ValueError):
+    """A rule file is not a valid TraceSig rule."""
 
 
 @dataclass
@@ -33,6 +43,7 @@ class Finding:
     events: List[TraceEvent]
     description: str = ""
     tags: List[str] = field(default_factory=list)
+    pack: str = ""
 
 
 @dataclass
@@ -46,33 +57,208 @@ class Rule:
     status: str = "experimental"
     tags: List[str] = field(default_factory=list)
     path: str = ""
+    pack: str = ""
 
 
-def load_rules(rules_dir: str) -> List[Rule]:
-    rules: List[Rule] = []
-    for root, _dirs, files in os.walk(rules_dir):
+# ---------------------------------------------------------------- bundled packs
+
+def bundled_rules_dir() -> Path:
+    """Where the rule packs that ship with TraceSig live.
+
+    Installed wheels carry them inside the package (``tracesig/rules``); a
+    source checkout keeps them at the repository root (``rules/``).
+    """
+    here = Path(__file__).resolve().parent
+    for candidate in (here / "rules", here.parent / "rules"):
+        if candidate.is_dir():
+            return candidate
+    raise FileNotFoundError("bundled TraceSig rules not found")
+
+
+def available_packs() -> List[str]:
+    """Names of the bundled rule packs (the folders under the rules directory)."""
+    return sorted(p.name for p in bundled_rules_dir().iterdir() if p.is_dir() and not p.name.startswith("."))
+
+
+def pack_dirs(names: Iterable[str]) -> List[str]:
+    """Directories for the named bundled packs; ``all`` selects every pack."""
+    root = bundled_rules_dir()
+    packs = available_packs()
+    out: List[str] = []
+    for name in names:
+        if name == "all":
+            out.extend(str(root / p) for p in packs)
+        elif name in packs:
+            out.append(str(root / name))
+        else:
+            raise RuleError("unknown rule pack %r (available: %s, all)" % (name, ", ".join(packs)))
+    return list(dict.fromkeys(out))
+
+
+# ---------------------------------------------------------------- loading and validation
+
+def _split_key(key: str) -> tuple:
+    if "|" in key:
+        path, op = key.split("|", 1)
+    else:
+        path, op = key, "equals"
+    return path, op
+
+
+def _check_conditions(conds: Any, where: str, errors: List[str], allow_empty: bool = False) -> None:
+    if not isinstance(conds, dict) or (not conds and not allow_empty):
+        errors.append("%s must be a non-empty mapping of field conditions" % where)
+        return
+    for key, expected in conds.items():
+        _path, op = _split_key(str(key))
+        if op not in OPERATORS:
+            errors.append("%s: unknown operator %r in %r (use contains or matches)" % (where, op, key))
+        if op == "matches":
+            for pattern in (expected if isinstance(expected, list) else [expected]):
+                try:
+                    re.compile(str(pattern))
+                except re.error as exc:
+                    errors.append("%s: invalid regex for %r: %s" % (where, key, exc))
+
+
+def validate_rule(doc: Any) -> List[str]:
+    """Return a list of problems with a parsed rule document (empty if valid)."""
+    errors: List[str] = []
+    if not isinstance(doc, dict):
+        return ["rule must be a YAML mapping"]
+    for key in ("id", "title", "severity", "category", "detection"):
+        if key not in doc:
+            errors.append("missing required field %r" % key)
+    sev = str(doc.get("severity", ""))
+    if "severity" in doc and sev not in SEVERITIES:
+        errors.append("severity %r is not one of %s" % (sev, ", ".join(SEVERITIES)))
+    if "detection" not in doc:
+        return errors
+    det = doc["detection"]
+    if not isinstance(det, dict):
+        return errors + ["detection must be a mapping"]
+    types = [t for t in DETECTION_TYPES if t in det]
+    if len(types) != 1:
+        return errors + ["detection needs exactly one of %s (found %s)" % (", ".join(DETECTION_TYPES), types or "none")]
+    kind = types[0]
+    body = det[kind]
+    if kind == "selection":
+        _check_conditions(body, "selection", errors)
+    elif kind == "sequence":
+        if not isinstance(body, list) or len(body) < 2:
+            errors.append("sequence must be a list of at least two steps")
+        else:
+            for i, step in enumerate(body):
+                _check_conditions(step, "sequence step %d" % (i + 1), errors)
+    elif kind == "taint":
+        if not isinstance(body, dict) or "source_label" not in body:
+            errors.append("taint needs source_label")
+        elif not any(str(k).split("|", 1)[0] == "sink" for k in body):
+            errors.append("taint needs a sink condition (sink or sink|matches)")
+        else:
+            sink = {"tool" + str(k)[4:]: v for k, v in body.items() if str(k).split("|", 1)[0] == "sink"}
+            _check_conditions(sink, "taint sink", errors)
+    elif kind == "frequency":
+        if not isinstance(body, dict):
+            errors.append("frequency must be a mapping")
+        else:
+            conds = {k: v for k, v in body.items() if k not in ("count", "group_by")}
+            _check_conditions(conds, "frequency", errors, allow_empty=True)
+            try:
+                if int(body.get("count", 10)) < 1:
+                    errors.append("frequency count must be >= 1")
+            except (TypeError, ValueError):
+                errors.append("frequency count must be an integer")
+    elif kind == "not_preceded_by":
+        if not isinstance(body, dict) or not body.get("event"):
+            errors.append("not_preceded_by needs an event condition")
+        else:
+            _check_conditions(body.get("event"), "not_preceded_by event", errors)
+            _check_conditions(body.get("guard") or {}, "not_preceded_by guard", errors, allow_empty=True)
+    windows = [det.get("within_events")]
+    if isinstance(body, dict):
+        windows.append(body.get("within_events"))
+    for window in windows:
+        if window is None:
+            continue
+        try:
+            int(window)
+        except (TypeError, ValueError):
+            errors.append("within_events must be an integer")
+    return errors
+
+
+def _rule_files(target: str) -> List[str]:
+    if os.path.isfile(target):
+        return [target]
+    if not os.path.isdir(target):
+        raise FileNotFoundError(target)
+    out: List[str] = []
+    for root, dirs, files in os.walk(target):
+        dirs.sort()
         for name in sorted(files):
-            if not name.endswith((".yml", ".yaml")):
-                continue
-            p = os.path.join(root, name)
+            if name.endswith((".yml", ".yaml")):
+                out.append(os.path.join(root, name))
+    return out
+
+
+def _pack_of(path: str, base: str) -> str:
+    """The pack a rule belongs to: its first folder below the rules root."""
+    if not os.path.isdir(base):
+        return os.path.basename(os.path.dirname(os.path.abspath(path)))
+    parts = Path(os.path.relpath(path, base)).parts
+    if len(parts) > 1:
+        return parts[0]
+    return os.path.basename(os.path.normpath(os.path.abspath(base)))
+
+
+def load_rules(rules: Union[str, Sequence[str]], strict: bool = False) -> List[Rule]:
+    """Load rules from one or more files or directories (searched recursively).
+
+    Documents without a ``detection`` block are skipped (they may be other
+    YAML). With ``strict`` an invalid or duplicate rule raises
+    :class:`RuleError`; otherwise it is skipped.
+    """
+    targets = [rules] if isinstance(rules, str) else list(rules)
+    out: List[Rule] = []
+    seen: Dict[str, str] = {}
+    try:
+        bundled: Optional[str] = os.path.abspath(str(bundled_rules_dir()))
+    except FileNotFoundError:
+        bundled = None
+    for target in targets:
+        for p in _rule_files(target):
             with open(p, "r", encoding="utf-8") as f:
                 doc = yaml.safe_load(f)
             if not isinstance(doc, dict) or "detection" not in doc:
                 continue
-            rules.append(
+            problems = validate_rule(doc)
+            if problems:
+                if strict:
+                    raise RuleError("%s: %s" % (p, "; ".join(problems)))
+                continue
+            rule_id = str(doc["id"])
+            if rule_id in seen:
+                if os.path.abspath(seen[rule_id]) != os.path.abspath(p) and strict:
+                    raise RuleError("%s: duplicate rule id %s (also in %s)" % (p, rule_id, seen[rule_id]))
+                continue
+            seen[rule_id] = p
+            inside_bundled = bundled is not None and os.path.abspath(p).startswith(bundled + os.sep)
+            out.append(
                 Rule(
-                    rule_id=str(doc.get("id", name)),
-                    title=str(doc.get("title", name)),
+                    rule_id=rule_id,
+                    title=str(doc.get("title", rule_id)),
                     severity=str(doc.get("severity", "medium")),
                     category=str(doc.get("category", "uncategorized")),
                     detection=doc["detection"],
-                    description=str(doc.get("description", "")),
+                    description=" ".join(str(doc.get("description", "")).split()),
                     status=str(doc.get("status", "experimental")),
-                    tags=[str(t) for t in doc.get("tags", [])],
+                    tags=[str(t) for t in doc.get("tags", []) or []],
                     path=p,
+                    pack=_pack_of(p, bundled if inside_bundled and bundled else target),
                 )
             )
-    return rules
+    return out
 
 
 # ---------------------------------------------------------------- matching
@@ -82,6 +268,8 @@ def _match_value(op: str, expected: Any, actual: Any) -> bool:
         return False
     if isinstance(actual, list):
         return any(_match_value(op, expected, a) for a in actual)
+    if isinstance(expected, list) and op != "contains":
+        return any(_match_value(op, e, actual) for e in expected)
     text = str(actual)
     if op == "matches":
         return re.search(str(expected), text, re.IGNORECASE) is not None
@@ -96,10 +284,7 @@ def _match_value(op: str, expected: Any, actual: Any) -> bool:
 def _event_matches(conditions: Dict[str, Any], ev: TraceEvent) -> bool:
     """`conditions` maps 'field', 'field|matches' or 'field|contains' -> expected."""
     for key, expected in conditions.items():
-        if "|" in key:
-            path, op = key.split("|", 1)
-        else:
-            path, op = key, "equals"
+        path, op = _split_key(key)
         if not _match_value(op, expected, ev.get(path)):
             return False
     return True
@@ -113,18 +298,22 @@ def _eval_selection(det: Dict[str, Any], sess: List[TraceEvent]) -> List[List[Tr
 
 
 def _eval_sequence(det: Dict[str, Any], sess: List[TraceEvent]) -> List[List[TraceEvent]]:
+    """Ordered steps; with ``within_events`` the whole chain spans at most that many seq."""
     steps: List[Dict[str, Any]] = det["sequence"]
     window = det.get("within_events")
-    hits: List[List[TraceEvent]] = []
-    i = 0
-    while i < len(sess):
-        chain: List[TraceEvent] = []
-        j = i
-        for step in steps:
+    by_end: Dict[int, List[TraceEvent]] = {}
+    for start, first in enumerate(sess):
+        if not _event_matches(steps[0], first):
+            continue
+        chain = [first]
+        j = start + 1
+        for step in steps[1:]:
             found = None
             while j < len(sess):
                 ev = sess[j]
                 j += 1
+                if window is not None and (ev.seq - first.seq) > int(window):
+                    break
                 if _event_matches(step, ev):
                     found = ev
                     break
@@ -133,27 +322,28 @@ def _eval_sequence(det: Dict[str, Any], sess: List[TraceEvent]) -> List[List[Tra
                 break
             chain.append(found)
         if chain:
-            if window is None or (chain[-1].seq - chain[0].seq) <= int(window):
-                hits.append(chain)
-            i = sess.index(chain[0]) + 1
-        else:
-            break
-    return hits
+            # one finding per completing event, anchored on the latest start
+            by_end[id(chain[-1])] = chain
+    return list(by_end.values())
 
 
 def _eval_taint(det: Dict[str, Any], sess: List[TraceEvent]) -> List[List[TraceEvent]]:
     spec = det["taint"]
-    source_label = str(spec["source_label"])
-    sink_conds = {k: v for k, v in spec.items() if k.startswith("sink")}
+    source_labels = spec["source_label"]
+    if not isinstance(source_labels, list):
+        source_labels = [source_labels]
+    wanted = {str(x).lower() for x in source_labels}
     # rewrite 'sink' / 'sink|matches' keys to address the tool field
     rewritten = {}
-    for k, v in sink_conds.items():
+    for k, v in spec.items():
+        if str(k).split("|", 1)[0] != "sink":
+            continue
         op = k.split("|", 1)[1] if "|" in k else "equals"
-        rewritten[f"tool|{op}"] = v
+        rewritten["tool" if op == "equals" else "tool|%s" % op] = v
     source_ev: Optional[TraceEvent] = None
     hits: List[List[TraceEvent]] = []
     for ev in sess:
-        if source_ev is None and source_label in ev.labels:
+        if source_ev is None and wanted & {str(x).lower() for x in ev.labels}:
             source_ev = ev
             continue
         if source_ev is not None and _event_matches(rewritten, ev):
@@ -165,8 +355,16 @@ def _eval_taint(det: Dict[str, Any], sess: List[TraceEvent]) -> List[List[TraceE
 def _eval_frequency(det: Dict[str, Any], sess: List[TraceEvent]) -> List[List[TraceEvent]]:
     spec = dict(det["frequency"])
     count = int(spec.pop("count", 10))
+    group_by = spec.pop("group_by", None)
+    if group_by is None and not spec:
+        group_by = "tool"  # no conditions: count repeats of the same tool
     matched = [ev for ev in sess if _event_matches(spec, ev)]
-    return [matched] if len(matched) >= count else []
+    if not group_by:
+        return [matched] if len(matched) >= count else []
+    groups: Dict[str, List[TraceEvent]] = {}
+    for ev in matched:
+        groups.setdefault(str(ev.get(str(group_by))), []).append(ev)
+    return [evs for _key, evs in sorted(groups.items()) if len(evs) >= count]
 
 
 def _eval_not_preceded_by(det: Dict[str, Any], sess: List[TraceEvent]) -> List[List[TraceEvent]]:
@@ -207,6 +405,7 @@ _EVALUATORS = {
 
 
 def scan(events: List[TraceEvent], rules: List[Rule]) -> List[Finding]:
+    """Run every rule over every session; findings sorted most severe first."""
     findings: List[Finding] = []
     for sess in sessions(events):
         for rule in rules:
@@ -224,8 +423,8 @@ def scan(events: List[TraceEvent], rules: List[Rule]) -> List[Finding]:
                         events=hit,
                         description=rule.description,
                         tags=rule.tags,
+                        pack=rule.pack,
                     )
                 )
-    order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "informational": 4}
-    findings.sort(key=lambda f: order.get(f.severity, 9))
+    findings.sort(key=lambda f: (SEVERITY_ORDER.get(f.severity, 9), f.rule_id, f.session_id, f.events[0].seq))
     return findings

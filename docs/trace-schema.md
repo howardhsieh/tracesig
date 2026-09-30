@@ -1,4 +1,4 @@
-# TraceSig trace schema (v0.1)
+# TraceSig trace schema (v0.2)
 
 A **trace** is a JSONL file — one JSON object per line, one object per tool
 call the agent made, in order. This is the normalized shape rules run against.
@@ -27,12 +27,18 @@ Any other keys are preserved under `raw.` and addressable by rules.
 
 ## Where labels come from
 Labels are the heart of provenance detection. A normalizer assigns them:
-`web`/`untrusted` for anything fetched from the open internet, `pii` when a
-tool returns personal data, `file`/`secret` for local reads. TraceSig ships a
-generic loader in v0.1; **agent-policy-gateway already emits source labels in
-its audit log**, so its logs normalize directly — the two projects compose.
+`web`/`untrusted` for anything fetched from the open internet, `mcp` for MCP
+tool results, `pii` when a tool returns personal data, `file`/`secret` for
+local reads. Label names compare case-insensitively.
 
-## Normalizers (roadmap, v0.2)
-`tracesig.normalize.mcp`, `.openai`, `.anthropic`, `.apg` — each maps a
-provider's native tool-call log onto this schema so the same rule pack runs
-everywhere.
+## Normalizers
+`tracesig scan` and `tracesig normalize` read these formats directly and
+detect them per file:
+
+| Format | Source | Module |
+|---|---|---|
+| `tracesig` | this schema | `tracesig.schema` |
+| `claude-code` | Claude Code transcripts (`~/.claude/projects/**.jsonl`) and OpenTelemetry log exports | `tracesig.normalize.claude_code` |
+| `apg` | `apg audit export --format tracesig` (schema `apg-audit-trace`, version 1) | `tracesig.normalize.apg` |
+
+Label rules and field mappings for each: [normalizers.md](normalizers.md).

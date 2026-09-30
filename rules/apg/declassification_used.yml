@@ -1,0 +1,18 @@
+id: APG-004
+title: Declassification grant lowered a taint label
+status: experimental
+severity: low
+category: privilege
+description: >
+  A declassify grant in the policy removed a taint label on this call (for
+  example a sanitizer marked web content as trusted). Declassification is by
+  design, but every use should be auditable; alert on grants you did not
+  expect to fire.
+tags:
+  - agent-policy-gateway
+  - audit
+references:
+  - https://github.com/howardhsieh/agent-policy-gateway
+detection:
+  selection:
+    raw.declassified_by|matches: ".+"

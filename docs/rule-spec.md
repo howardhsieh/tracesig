@@ -1,4 +1,4 @@
-# TraceSig rule specification (v0.1)
+# TraceSig rule specification (v0.2)
 
 A rule is a YAML document. Metadata fields describe it; the `detection` block
 says what to match. One detection type per rule.
@@ -7,10 +7,10 @@ says what to match. One detection type per rule.
 
 | field | required | notes |
 |---|---|---|
-| `id` | yes | stable identifier, `TS-<CAT>-NNN` |
+| `id` | yes | stable, unique identifier: `TS-<CAT>-NNN` (core), `CC-…` (claude-code), `APG-…` (apg), your own prefix for local rules |
 | `title` | yes | one line |
 | `severity` | yes | `critical` \| `high` \| `medium` \| `low` \| `informational` |
-| `category` | yes | `injection` \| `exfiltration` \| `privilege` \| `anomaly` |
+| `category` | yes | `injection` \| `exfiltration` \| `privilege` \| `anomaly` (free text is allowed) |
 | `description` | no | what and why |
 | `status` | no | `experimental` \| `stable` (default `experimental`) |
 | `tags` | no | free-form, e.g. `owasp-llm01` |
@@ -19,7 +19,10 @@ says what to match. One detection type per rule.
 ## Fields you can match
 
 Addressed by dotted path: `tool`, `args`, `labels`, `result_preview`, `agent`,
-`ts`, `session_id`, `seq`, and `raw.<key>` for anything the normalizer kept.
+`ts`, `session_id`, `seq`, and `raw.<key>` for anything the normalizer kept
+(for example `raw.verdict` on agent-policy-gateway events, or
+`raw.is_sidechain` on Claude Code events). Nested keys use more dots:
+`raw.args.to`.
 
 ## Operators
 
@@ -29,7 +32,9 @@ Append `|<op>` to a field name:
 - `|contains` — substring (or any-of, if given a list)
 - `|matches` — regex (case-insensitive)
 
-List-valued fields (like `labels`) match if **any** element matches.
+List-valued fields (like `labels`) match if **any** element matches. A list
+as the expected value means any of them (`tool: [send_email, send_sms]`).
+Booleans compare as text, so `raw.flagged: true` works.
 
 ## Detection types
 
@@ -56,6 +61,8 @@ detection:
 ### taint
 A `source_label` appears on some event, then a later event matches the `sink`
 condition — provenance-based, the core agent-security primitive.
+`source_label` may be a list (any of them). The sink addresses the `tool`
+field.
 ```yaml
 detection:
   taint:
@@ -64,13 +71,16 @@ detection:
 ```
 
 ### frequency
-An event matching the given conditions repeats `count`+ times in one session.
-Omit conditions (except `count`) to count repeats of the *same* tool.
+Events matching the given conditions repeat `count`+ times in one session.
+`group_by: <field>` counts each value of that field separately. With no
+conditions (only `count`), repeats of the *same* tool are counted
+(`group_by: tool` is implied).
 ```yaml
 detection:
   frequency:
     tool|matches: "login"
     count: 5
+    group_by: args      # optional: 5 attempts against the same account
 ```
 
 ### not_preceded_by
@@ -88,6 +98,15 @@ detection:
     within_events: 5   # optional
 ```
 
-## Roadmap (v0.2+)
-cross-session correlation, a shared taxonomy of tool categories, and provider normalizers
-(MCP, OpenAI, Anthropic, agent-policy-gateway).
+## Packs and validation
+
+Bundled rules live in `rules/<pack>/` (`core`, `claude-code`, `apg`) and ship
+inside the Python package. `tracesig validate DIR` checks rule files the way
+the loader does in strict mode: required fields, a known severity, exactly one
+detection type, known operators, regexes that compile, integer windows, and
+unique ids. Run it in CI for your own rule folders.
+
+## Roadmap (v0.3+)
+Time windows (`within: 10m`), cross-session correlation, a shared taxonomy of
+tool categories, more normalizers (OpenAI Agents SDK, LangGraph, MCP gateway
+logs), SARIF and Sigma export.

@@ -1,0 +1,19 @@
+id: APG-001
+title: Repeated policy denials in one session (agent keeps pushing against the gateway)
+status: experimental
+severity: high
+category: anomaly
+description: >
+  agent-policy-gateway denied or held three or more tool calls in the same
+  session. One denial is the gateway working; a run of them usually means the
+  agent is following injected instructions and retrying different routes.
+tags:
+  - owasp-asi01
+  - agent-policy-gateway
+references:
+  - https://github.com/howardhsieh/agent-policy-gateway
+detection:
+  frequency:
+    raw.flagged: true
+    count: 3
+    group_by: session_id

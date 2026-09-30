@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from typing import List
 
-from .engine import Finding
+from .engine import SEVERITIES, Finding
+from .schema import TraceEvent
 
 _SEV_ICON = {
     "critical": "[CRIT]",
@@ -14,6 +16,11 @@ _SEV_ICON = {
     "low": "[LOW ]",
     "informational": "[INFO]",
 }
+
+
+def _verdict(ev: TraceEvent) -> str:
+    verdict = ev.raw.get("verdict") if isinstance(ev.raw, dict) else None
+    return "  verdict=%s" % verdict if verdict else ""
 
 
 def to_text(findings: List[Finding]) -> str:
@@ -29,7 +36,9 @@ def to_text(findings: List[Finding]) -> str:
         for ev in f.events:
             args = (ev.args[:80] + "…") if len(ev.args) > 80 else ev.args
             labels = f"  labels={ev.labels}" if ev.labels else ""
-            lines.append(f"    #{ev.seq:<4} {ev.tool}  {args}{labels}")
+            lines.append(f"    #{ev.seq:<4} {ev.tool}  {args}{labels}{_verdict(ev)}")
+    counts = Counter(f.severity for f in findings)
+    lines.append("\n" + ", ".join("%d %s" % (counts[s], s) for s in SEVERITIES if counts[s]))
     lines.append("")
     return "\n".join(lines)
 
@@ -43,12 +52,15 @@ def to_json(findings: List[Finding]) -> str:
                 "title": f.title,
                 "severity": f.severity,
                 "category": f.category,
+                "pack": f.pack,
                 "session_id": f.session_id,
                 "tags": f.tags,
                 "events": [
-                    {"seq": ev.seq, "tool": ev.tool, "args": ev.args, "labels": ev.labels}
+                    {"seq": ev.seq, "tool": ev.tool, "args": ev.args, "labels": ev.labels, "ts": ev.ts}
                     for ev in f.events
                 ],
             }
         )
-    return json.dumps({"findings": out, "count": len(out)}, indent=2, ensure_ascii=False)
+    counts = Counter(f.severity for f in findings)
+    return json.dumps({"findings": out, "count": len(out), "summary": {s: counts[s] for s in SEVERITIES}},
+                      indent=2, ensure_ascii=False)

@@ -1,0 +1,23 @@
+id: APG-003
+title: Blocked outbound call followed by an allowed one (possible policy evasion)
+status: experimental
+severity: high
+category: exfiltration
+description: >
+  The gateway denied an outbound or state-changing call, and within the next
+  three calls the agent got a different outbound call allowed. Injected agents
+  often route around a block through another tool (email blocked, then a
+  webhook or file share).
+tags:
+  - owasp-asi01
+  - owasp-asi02
+  - agent-policy-gateway
+references:
+  - https://github.com/howardhsieh/agent-policy-gateway
+detection:
+  sequence:
+    - raw.verdict: deny
+      tool|matches: "(send|post|email|mail|message|webhook|upload|publish|transfer|payment|pay_|share)"
+    - raw.verdict: allow
+      tool|matches: "(send|post|email|mail|message|webhook|upload|publish|transfer|payment|pay_|share)"
+  within_events: 3

@@ -42,7 +42,7 @@ def test_rules_all_load():
     # every rule has a stable-looking id and a known detection type
     known = {"selection", "sequence", "taint", "frequency", "not_preceded_by"}
     for r in rules:
-        assert r.rule_id.startswith("TS-")
+        assert r.rule_id.startswith(("TS-", "CC-", "APG-"))
         assert known & set(r.detection.keys())
 
 
