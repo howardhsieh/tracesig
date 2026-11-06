@@ -33,7 +33,7 @@ TraceSig is the open layer:
    provenance labels (`web`, `untrusted`, `secret`, `pii`, `mcp`, …).
 2. **A rule format and engine**: Sigma-style YAML, five detection primitives,
    one dependency (PyYAML).
-3. **Rule packs and normalizers**: 23 rules across three packs; Claude Code
+3. **Rule packs and normalizers**: 24 rules across three packs; Claude Code
    transcripts, Claude Code OpenTelemetry and agent-policy-gateway audit
    exports are read directly.
 
@@ -104,7 +104,7 @@ field as `raw.<name>`. Full grammar: [docs/rule-spec.md](docs/rule-spec.md).
 
 ## Rule packs
 
-**core** (12 rules): generic tool names, any agent.
+**core** (13 rules): generic tool names, any agent.
 
 | ID | Severity | Catches |
 |---|---|---|
@@ -120,6 +120,7 @@ field as `raw.<name>`. Full grammar: [docs/rule-spec.md](docs/rule-spec.md).
 | TS-ANO-001 | medium | the same tool called 25+ times (loop, DoS) |
 | TS-ANO-002 | high | repeated login or auth calls (brute force) |
 | TS-ANO-003 | high | PII → external recipient (agent DLP) |
+| TS-ANO-004 | medium | 3+ credential/secret reads in one session (credential harvesting) |
 
 **claude-code** (7 rules): Claude Code tool names, with Bash commands
 classified as `Bash(network)`, `Bash(publish)`, `Bash(destructive)` or

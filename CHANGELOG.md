@@ -6,6 +6,10 @@ All notable changes to TraceSig are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Rule **TS-ANO-004** (core): flags three or more `secret`-labeled reads in one session as credential harvesting (MITRE ATT&CK T1552), with firing and benign example traces. Core pack is now 13 rules, 24 total.
+
 ## [0.2.1] - 2026-09-30
 
 ### Added

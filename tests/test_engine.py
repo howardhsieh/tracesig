@@ -85,3 +85,15 @@ def test_not_preceded_by_window_bounds_guard():
         TraceEvent(session_id="b", seq=1, tool="delete_file"),
     ]
     assert len(scan(near, [rule])) == 0
+
+
+def test_credential_harvest_flagged():
+    findings = _scan("credential_harvest.jsonl")
+    # several secret reads in one session trip the harvesting anomaly rule
+    assert "TS-ANO-004" in {f.rule_id for f in findings}
+
+
+def test_credential_access_below_threshold_is_quiet():
+    findings = _scan("credential_access_benign.jsonl")
+    # a single legitimate secret read is below the threshold
+    assert "TS-ANO-004" not in {f.rule_id for f in findings}
